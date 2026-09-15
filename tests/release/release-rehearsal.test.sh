@@ -90,8 +90,17 @@ grep -Eq 'needs: \[release\]' "$release_workflow"
 # @stable, @main, per-tool tags like @cargo-nextest, and short SHAs), across
 # all workflows — not just the publishing one — for a uniform supply-chain
 # posture that cannot silently drift.
-for workflow in "${repo_root}"/.github/workflows/*.yml; do
+shopt -s nullglob
+workflow_files=("${repo_root}"/.github/workflows/*.yml "${repo_root}"/.github/workflows/*.yaml)
+if [[ "${#workflow_files[@]}" -eq 0 ]]; then
+    printf 'FAIL: no workflow files found for action pin validation\n' >&2
+    exit 1
+fi
+
+uses_seen=0
+for workflow in "${workflow_files[@]}"; do
     while IFS= read -r uses_line; do
+        uses_seen=$((uses_seen + 1))
         # A reusable workflow in this same repository is referenced by path and
         # cannot carry a SHA at all: GitHub resolves `./...` at the caller's own
         # commit, so it is pinned by construction and always to this tree. The
@@ -107,6 +116,11 @@ for workflow in "${repo_root}"/.github/workflows/*.yml; do
         fi
     done < <(grep -E '^[[:space:]]*(-[[:space:]]+)?uses:' "$workflow")
 done
+if [[ "$uses_seen" -lt 40 ]]; then
+    printf 'FAIL: action pin extraction found only %s uses: lines; expected at least 40\n' \
+        "$uses_seen" >&2
+    exit 1
+fi
 if grep -Fq -- '--no-verify' "$release_workflow"; then
     printf 'FAIL: release publication skips generated crate verification\n' >&2
     exit 1
